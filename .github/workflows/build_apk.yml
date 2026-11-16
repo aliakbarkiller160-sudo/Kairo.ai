@@ -17,14 +17,13 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Generate Keystore & Build Signed APK
+      - name: Build & Sign APK
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           keytool -genkey -v -keystore kairo.jks -keyalg RSA -keysize 2048 -validity 10000 -alias kairo -storepass kairo123 -keypass kairo123 -dname "CN=KairoAI, OU=Dev, O=Kairo, L=Lahore, S=Punjab, C=PK"
           chmod +x gradlew || gradle wrapper
-          ./gradlew assembleRelease
-          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-          $BUILD_TOOLS/zipalign -v -p 4 app/build/outputs/apk/release/app-release-unsigned.apk app-aligned.apk
+          ./gradlew assembleDebug
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          $BUILD_TOOLS/zipalign -v -p 4 app/build/outputs/apk/debug/app-debug.apk app-aligned.apk
           $BUILD_TOOLS/apksigner sign --ks kairo.jks --ks-pass pass:kairo123 --key-pass pass:kairo123 --out Kairo-AI-Signed.apk app-aligned.apk
 
       - name: Upload Signed APK
