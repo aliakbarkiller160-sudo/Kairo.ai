@@ -20,7 +20,7 @@ jobs:
       - name: Build & Sign APK
         run: |
           keytool -genkey -v -keystore kairo.jks -keyalg RSA -keysize 2048 -validity 10000 -alias kairo -storepass kairo123 -keypass kairo123 -dname "CN=KairoAI, OU=Dev, O=Kairo, L=Lahore, S=Punjab, C=PK"
-          chmod +x gradlew || gradle wrapper
+          gradle wrapper --gradle-version 8.7
           ./gradlew assembleDebug
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
           $BUILD_TOOLS/zipalign -v -p 4 app/build/outputs/apk/debug/app-debug.apk app-aligned.apk
