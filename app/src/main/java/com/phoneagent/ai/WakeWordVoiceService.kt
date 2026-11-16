@@ -56,7 +56,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         }
         val notif = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Kairo AI • Command-Only Mode 🛡️")
-            .setContentText("'Hey Kairo' bol kar hukam dein...")
+            .setContentText("'Kairo' bol kar hukam dein...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
         startForeground(1001, notif)
@@ -137,7 +137,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
-                putExtra(RecognizerIntent.EXTRA_EXTRA_LANGUAGES, arrayListOf("ur-PK", "hi-IN", "en-US"))
+                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ur-PK", "hi-IN", "en-US"))
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
             }
@@ -179,7 +179,10 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     private fun isWakeWordDetected(spokenLower: String, wakeNameLower: String): Boolean {
         if (spokenLower.contains(wakeNameLower)) return true
         if (wakeNameLower == "kairo") {
-            val variants = listOf("kairo", "cairo", "kyro", "kero", "qairo", "kairon", "کائرو", "کیرو")
+            val variants = listOf(
+                "kairo", "cairo", "kyro", "kero", "kiro", "qairo",
+                "caro", "kairon", "kairow", "kairoh", "کائرو", "کیرو", "کairo"
+            )
             return variants.any { spokenLower.contains(it) }
         }
         return false
@@ -190,7 +193,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         val wakeName = (prefs.getString("wake_name", "Kairo") ?: "Kairo").trim()
         val apiKey = (prefs.getString("api_key", "") ?: "").trim()
 
-        // STRICT COMMAND-ONLY: Only activate when explicitly called by wake word
+        // STRICT COMMAND-ONLY: Activates whenever "Kairo" (or any variation) is spoken, with or without "Hey"
         val calledByName = isWakeWordDetected(spoken.lowercase(), wakeName.lowercase())
         if (!calledByName) {
             restartListenerDelayed(300)
@@ -215,7 +218,11 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         log("👤 Tum: $spoken")
 
         var cleaned = spoken
-        listOf(wakeName, "cairo", "kyro", "kero", "qairo", "کائرو", "کیرو", "hey", "hi", "hello", "suno").forEach {
+        listOf(
+            wakeName, "cairo", "kyro", "kero", "kiro", "qairo",
+            "caro", "kairon", "kairow", "kairoh", "کائرو", "کیرو",
+            "hey", "hi", "hello", "suno", "ji"
+        ).forEach {
             cleaned = cleaned.replace(it, "", ignoreCase = true)
         }
         if (cleaned.trim().length <= 2) {
