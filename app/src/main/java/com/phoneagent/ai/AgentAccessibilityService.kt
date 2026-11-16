@@ -3,10 +3,13 @@ package com.phoneagent.ai
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Path
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Base64
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
@@ -59,31 +62,114 @@ class AgentAccessibilityService : AccessibilityService() {
 
     fun performType(text: String) {
         val root = rootInActiveWindow ?: return
-        val focus = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        if (focus != null) {
+        var target = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (target == null) {
+            target = findFirstEditableNode(root)
+        }
+        if (target != null) {
             val args = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
             }
-            focus.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
         }
     }
 
+    private fun findFirstEditableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isEditable) return node
+        for (i in 0 until node.childCount) {
+            val found = findFirstEditableNode(node.getChild(i))
+            if (found != null) return found
+        }
+        return null
+    }
+
     fun openAppByName(name: String): Boolean {
-        val map = mapOf(
+        val query = name.lowercase().trim()
+
+        // 1. Common aliases & system intents
+        val aliases = mapOf(
             "whatsapp" to "com.whatsapp",
+            "whatsapp business" to "com.whatsapp.w4b",
             "youtube" to "com.google.android.youtube",
             "chrome" to "com.android.chrome",
+            "browser" to "com.android.chrome",
             "instagram" to "com.instagram.android",
             "facebook" to "com.facebook.katana",
+            "tiktok" to "com.zhiliaoapp.musically",
+            "snapchat" to "com.snapchat.android",
             "telegram" to "org.telegram.messenger",
             "settings" to "com.android.settings",
+            "wifi" to "com.android.settings",
+            "bluetooth" to "com.android.settings",
             "maps" to "com.google.android.apps.maps",
-            "gmail" to "com.google.android.gm"
+            "google maps" to "com.google.android.apps.maps",
+            "gmail" to "com.google.android.gm",
+            "play store" to "com.android.vending",
+            "spotify" to "com.spotify.music",
+            "jazzcash" to "com.techlogix.mobilinkcustomer",
+            "easypaisa" to "pk.com.telenor.phoenix"
         )
-        val pkg = map[name.lowercase().trim()] ?: name.trim()
-        val intent = packageManager.getLaunchIntentForPackage(pkg) ?: return false
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(intent)
+
+        aliases[query]?.let { pkg ->
+            packageManager.getLaunchIntentForPackage(pkg)?.let { intent ->
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                return true
+            }
+        }
+
+        // System shortcuts for camera, phone/dialer, messages, settings
+        try {
+            when {
+                query.contains("camera") -> {
+                    val i = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(i)
+                    return true
+                }
+                query == "phone" || query == "dialer" || query == "call" -> {
+                    val i = Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(i)
+                    return true
+                }
+                query == "messages" || query == "sms" -> {
+                    val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MESSAGING).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(i)
+                    return true
+                }
+                query == "settings" -> {
+                    val i = Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(i)
+                    return true
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Dynamic search across ALL installed launchable apps on the phone
+        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val apps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.queryIntentActivities(mainIntent, PackageManager.ResolveInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.queryIntentActivities(mainIntent, 0)
+        }
+
+        // Exact label match first, then partial match
+        val exactMatch = apps.firstOrNull {
+            it.loadLabel(packageManager).toString().lowercase().trim() == query
+        }
+        val partialMatch = exactMatch ?: apps.firstOrNull {
+            val label = it.loadLabel(packageManager).toString().lowercase()
+            val pkgName = it.activityInfo.packageName.lowercase()
+            label.contains(query) || query.contains(label) || pkgName.contains(query)
+        }
+
+        val targetPkg = partialMatch?.activityInfo?.packageName ?: query
+        val launchIntent = packageManager.getLaunchIntentForPackage(targetPkg) ?: return false
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(launchIntent)
         return true
     }
 
