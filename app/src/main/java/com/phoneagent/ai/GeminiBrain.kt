@@ -48,7 +48,7 @@ Behavior Rules:
 
     fun askNextAction(goal: String, history: List<String>, screenshotBase64: String?): JSONObject {
         val cleanKey = apiKey.trim()
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
 
         val histText = if (history.isEmpty()) "(none)" else history.takeLast(12).joinToString("\n")
         val parts = JSONArray()
