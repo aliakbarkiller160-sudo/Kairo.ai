@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0E16"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="◎ Kairo AI Agent"
+            android:textColor="#E6E9F2"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="#121827"
+            android:padding="12dp"
+            android:text="Accessibility Service: OFF"
+            android:textColor="#F59E0B" />
+
+        <Button
+            android:id="@+id/btnAcc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="1. Accessibility Permission ON Karein" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Agent Wake Word (Default: Kairo):"
+            android:textColor="#8A96B2"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/etWakeName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="#121827"
+            android:hint="Kairo"
+            android:padding="12dp"
+            android:text="Kairo"
+            android:textColor="#22C55E"
+            android:textColorHint="#8A96B2"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etApiKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="#121827"
+            android:hint="Gemini API Key (AIza...)"
+            android:inputType="textPassword"
+            android:padding="12dp"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#8A96B2" />
+
+        <Button
+            android:id="@+id/btnStartListen"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="14dp"
+            android:backgroundTint="#22C55E"
+            android:text="🎙️ Kairo Listening ON Karein"
+            android:textColor="#000000"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnStopListen"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:backgroundTint="#EF4444"
+            android:text="■ Listening Band Karein" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="Live Status &amp; Kairo Baat-Cheet:"
+            android:textColor="#8A96B2"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvLog"
+            android:layout_width="match_parent"
+            android:layout_height="280dp"
+            android:layout_marginTop="6dp"
+            android:background="#121827"
+            android:padding="12dp"
+            android:text="API Key daalein aur 'Kairo Listening ON Karein' dabayein..."
+            android:textColor="#E6E9F2"
+            android:textSize="13sp" />
+    </LinearLayout>
+</ScrollView>
