@@ -2,107 +2,417 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0E16"
-    android:padding="16dp">
+    android:background="#0B0F19"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:padding="16dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="◎ Kairo AI Agent"
-            android:textColor="#E6E9F2"
-            android:textSize="24sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvStatus"
+        <!-- TOP HEADER & LIVE AGENT STATUS -->
+        <LinearLayout
+            android:id="@+id/cardHeader"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:background="#121827"
-            android:padding="12dp"
-            android:text="Accessibility Service: OFF"
-            android:textColor="#F59E0B" />
+            android:orientation="vertical"
+            android:padding="18dp"
+            android:layout_marginBottom="14dp">
 
-        <Button
-            android:id="@+id/btnAcc"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="KAIRO AI"
+                        android:textColor="#38BDF8"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Executive Mobile OS Agent • Command-Only"
+                        android:textColor="#94A3B8"
+                        android:textSize="12sp"
+                        android:layout_marginTop="2dp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvAgentState"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="OFFLINE"
+                    android:textColor="#F87171"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:paddingLeft="10dp"
+                    android:paddingRight="10dp"
+                    android:paddingTop="5dp"
+                    android:paddingBottom="5dp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#1E293B"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="12dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Accessibility: Checking..."
+                    android:textColor="#F59E0B"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnAcc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="38dp"
+                    android:text="Permissions"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:backgroundTint="#1E293B" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- CREDITS & TOP-UP SECTION -->
+        <LinearLayout
+            android:id="@+id/cardCredits"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="1. Accessibility Permission ON Karein" />
+            android:orientation="vertical"
+            android:padding="18dp"
+            android:layout_marginBottom="14dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Agent Wake Word (Default: Kairo):"
-            android:textColor="#8A96B2"
-            android:textSize="13sp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-        <EditText
-            android:id="@+id/etWakeName"
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="AVAILABLE CREDITS"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.06" />
+
+                    <TextView
+                        android:id="@+id/tvCreditsBalance"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="500 CR"
+                        android:textColor="#22C55E"
+                        android:textSize="26sp"
+                        android:textStyle="bold"
+                        android:layout_marginTop="2dp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvPlanBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PRO TIER"
+                        android:textColor="#38BDF8"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvCreditsUsed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Used: 0 actions"
+                        android:textColor="#94A3B8"
+                        android:textSize="12sp"
+                        android:layout_marginTop="4dp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="INSTANT TOP-UP PACKAGES"
+                android:textColor="#64748B"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnTopup100"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:text="+100 CR"
+                    android:textColor="#E2E8F0"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:backgroundTint="#1E293B" />
+
+                <Button
+                    android:id="@+id/btnTopup500"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:text="+500 CR"
+                    android:textColor="#38BDF8"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:backgroundTint="#1E293B" />
+
+                <Button
+                    android:id="@+id/btnTopup1000"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:text="+1000 PRO"
+                    android:textColor="#0B0F19"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:backgroundTint="#22C55E" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- VOICE ENGINE & API CONFIGURATION -->
+        <LinearLayout
+            android:id="@+id/cardConfig"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:background="#121827"
-            android:hint="Kairo"
-            android:padding="12dp"
-            android:text="Kairo"
-            android:textColor="#22C55E"
-            android:textColorHint="#8A96B2"
-            android:textStyle="bold" />
+            android:orientation="vertical"
+            android:padding="18dp"
+            android:layout_marginBottom="14dp">
 
-        <EditText
-            android:id="@+id/etApiKey"
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="API &amp; WAKE-WORD VAULT"
+                android:textColor="#94A3B8"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"
+                android:layout_marginBottom="10dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:layout_marginBottom="10dp">
+
+                <EditText
+                    android:id="@+id/etApiKey"
+                    android:layout_width="0dp"
+                    android:layout_height="46dp"
+                    android:layout_weight="1"
+                    android:hint="Paste Gemini API Key (AQ... or AIzaSy...)"
+                    android:textColor="#F8FAFC"
+                    android:textColorHint="#64748B"
+                    android:textSize="13sp"
+                    android:inputType="textPassword"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:background="#0F172A" />
+
+                <Button
+                    android:id="@+id/btnToggleKey"
+                    android:layout_width="64dp"
+                    android:layout_height="46dp"
+                    android:layout_marginStart="6dp"
+                    android:text="Show"
+                    android:textAllCaps="false"
+                    android:textColor="#94A3B8"
+                    android:textSize="12sp"
+                    android:backgroundTint="#1E293B" />
+            </LinearLayout>
+
+            <EditText
+                android:id="@+id/etWakeName"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:hint="Wake Word (Default: Kairo)"
+                android:text="Kairo"
+                android:textColor="#F8FAFC"
+                android:textColorHint="#64748B"
+                android:textSize="13sp"
+                android:paddingLeft="12dp"
+                android:paddingRight="12dp"
+                android:background="#0F172A"
+                android:layout_marginBottom="14dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnStartListen"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1.3"
+                    android:layout_marginEnd="8dp"
+                    android:text="ACTIVATE KAIRO"
+                    android:textColor="#0B0F19"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:backgroundTint="#38BDF8" />
+
+                <Button
+                    android:id="@+id/btnStopListen"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="0.7"
+                    android:text="STOP"
+                    android:textColor="#F87171"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:backgroundTint="#1E293B" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- DIRECT COMMAND CONSOLE -->
+        <LinearLayout
+            android:id="@+id/cardCommand"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:background="#121827"
-            android:hint="Gemini API Key (AIza...)"
-            android:inputType="textPassword"
-            android:padding="12dp"
-            android:textColor="#FFFFFF"
-            android:textColorHint="#8A96B2" />
+            android:orientation="vertical"
+            android:padding="18dp"
+            android:layout_marginBottom="14dp">
 
-        <Button
-            android:id="@+id/btnStartListen"
-            android:layout_width="match_parent"
-            android:layout_height="54dp"
-            android:layout_marginTop="14dp"
-            android:backgroundTint="#22C55E"
-            android:text="🎙️ Kairo Listening ON Karein"
-            android:textColor="#000000"
-            android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DIRECT COMMAND CONSOLE"
+                android:textColor="#94A3B8"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"
+                android:layout_marginBottom="10dp" />
 
-        <Button
-            android:id="@+id/btnStopListen"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/etDirectCommand"
+                    android:layout_width="0dp"
+                    android:layout_height="46dp"
+                    android:layout_weight="1"
+                    android:hint="e.g. YouTube kholo aur naat chalao..."
+                    android:textColor="#F8FAFC"
+                    android:textColorHint="#64748B"
+                    android:textSize="13sp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:background="#0F172A" />
+
+                <Button
+                    android:id="@+id/btnSendCommand"
+                    android:layout_width="76dp"
+                    android:layout_height="46dp"
+                    android:layout_marginStart="6dp"
+                    android:text="RUN"
+                    android:textColor="#0B0F19"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:backgroundTint="#22C55E" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- LIVE ACTIVITY LOGS -->
+        <LinearLayout
+            android:id="@+id/cardLogs"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:backgroundTint="#EF4444"
-            android:text="■ Listening Band Karein" />
+            android:orientation="vertical"
+            android:padding="18dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="Live Status &amp; Kairo Baat-Cheet:"
-            android:textColor="#8A96B2"
-            android:textStyle="bold" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
 
-        <TextView
-            android:id="@+id/tvLog"
-            android:layout_width="match_parent"
-            android:layout_height="280dp"
-            android:layout_marginTop="6dp"
-            android:background="#121827"
-            android:padding="12dp"
-            android:text="API Key daalein aur 'Kairo Listening ON Karein' dabayein..."
-            android:textColor="#E6E9F2"
-            android:textSize="13sp" />
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="LIVE EXECUTION LOGS"
+                    android:textColor="#94A3B8"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.05" />
+
+                <TextView
+                    android:id="@+id/btnClearLogs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Clear"
+                    android:textColor="#38BDF8"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:padding="4dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="130dp"
+                android:text="System ready. Activate Kairo and say 'Kairo' to issue a command."
+                android:textColor="#CBD5E1"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:padding="12dp"
+                android:background="#090D16" />
+        </LinearLayout>
+
     </LinearLayout>
 </ScrollView>
