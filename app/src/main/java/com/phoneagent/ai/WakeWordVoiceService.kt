@@ -70,16 +70,47 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         }
         updateState("LISTENING (SILENT)")
         log("🛡️ Kairo Pro Active — Sirf tumhare hukam ka intezar hai.")
-        mainHandler.postDelayed({ startListeningCycle() }, 600)
+        mainHandler.postDelayed({ startListeningCycle() }, 500)
         return START_STICKY
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            val res = tts.setLanguage(Locale("ur", "PK"))
-            if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                tts.language = Locale.US
+            // South Asian locales (ur-PK / hi-IN / en-IN) pronounce Roman Urdu & English clearly & sweetly
+            val preferredLocales = listOf(
+                Locale("ur", "PK"),
+                Locale("hi", "IN"),
+                Locale("en", "IN"),
+                Locale.US
+            )
+            for (loc in preferredLocales) {
+                val res = tts.isLanguageAvailable(loc)
+                if (res == TextToSpeech.LANG_AVAILABLE || res == TextToSpeech.LANG_COUNTRY_AVAILABLE) {
+                    tts.language = loc
+                    break
+                }
             }
+
+            // Pick sweetest female/soft voice available on the phone
+            try {
+                val cuteVoice = tts.voices?.firstOrNull { v ->
+                    !v.isNetworkConnectionRequired &&
+                    (v.name.contains("female", true) ||
+                     v.name.contains("sfg", true) ||
+                     v.name.contains("iol", true) ||
+                     v.name.contains("in-x-end", true) ||
+                     v.name.contains("in-x-hid", true) ||
+                     v.name.contains("en-in", true))
+                }
+                if (cuteVoice != null) {
+                    tts.voice = cuteVoice
+                }
+            } catch (_: Exception) {}
+
+            // Cute, innocent & crystal-clear vocal tuning
+            tts.setPitch(1.18f)       // Soft, sweet higher pitch
+            tts.setSpeechRate(0.94f)  // Clear, gentle pace so every word is understood
+
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) {
@@ -125,7 +156,20 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         }
         updateState("SPEAKING")
         log("🗣️ Kairo: $text")
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reply_id")
+
+        // Strip emojis/symbols so voice sounds pure, cute & natural
+        val cleanVoiceText = text
+            .replace(Regex("[^\\p{L}\\p{N}\\p{P}\\p{Z}]"), "")
+            .replace("*", "")
+            .trim()
+
+        if (cleanVoiceText.isNotEmpty()) {
+            tts.speak(cleanVoiceText, TextToSpeech.QUEUE_FLUSH, null, "reply_id")
+        } else {
+            isExecutingTask = false
+            updateState("LISTENING (SILENT)")
+            startListeningCycle()
+        }
     }
 
     private fun startListeningCycle() {
@@ -139,7 +183,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
                 putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ur-PK", "hi-IN", "en-US"))
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1300L)
             }
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
@@ -156,18 +200,18 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                     if (spoken.isNotEmpty()) {
                         handleSpokenText(spoken)
                     } else {
-                        restartListenerDelayed(400)
+                        restartListenerDelayed(350)
                     }
                 }
 
                 override fun onError(error: Int) {
-                    val delayMs = if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200L else 600L
+                    val delayMs = if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1000L else 500L
                     restartListenerDelayed(delayMs)
                 }
             })
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
-            restartListenerDelayed(1200)
+            restartListenerDelayed(1000)
         }
     }
 
@@ -193,23 +237,22 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         val wakeName = (prefs.getString("wake_name", "Kairo") ?: "Kairo").trim()
         val apiKey = (prefs.getString("api_key", "") ?: "").trim()
 
-        // STRICT COMMAND-ONLY: Activates whenever "Kairo" (or any variation) is spoken, with or without "Hey"
         val calledByName = isWakeWordDetected(spoken.lowercase(), wakeName.lowercase())
         if (!calledByName) {
-            restartListenerDelayed(300)
+            restartListenerDelayed(250)
             return
         }
 
         if (apiKey.isEmpty()) {
             log("⚠️ API Key missing! Dashboard mein key paste karein.")
-            speakAndResume("Boss, pehle dashboard mein API key save karein.")
+            speakAndResume("Ji boss, pehle dashboard mein API key save kar dein.")
             return
         }
 
         val credits = prefs.getInt("credits_balance", 500)
         if (credits <= 0) {
             log("⚠️ Credits khatam! Top-up section se recharge karein.")
-            speakAndResume("Boss, aap ke Kairo credits khatam ho gaye hain. Top up karein.")
+            speakAndResume("Boss, aap ke Kairo credits khatam ho gaye hain.")
             return
         }
 
@@ -226,7 +269,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             cleaned = cleaned.replace(it, "", ignoreCase = true)
         }
         if (cleaned.trim().length <= 2) {
-            speakAndResume("Ji boss, Kairo hazir hai! Hukam karein.")
+            speakAndResume("Ji boss! Kairo hazir hai, hukam karein.")
             return
         }
 
@@ -276,7 +319,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                     withContext(Dispatchers.IO) { brain.askNextAction(goal, history, shot) }
                 } catch (e: Exception) {
                     log("❌ API Error: ${e.message}")
-                    finalSpoken = "API connection mein error aa gaya. Logs check karein."
+                    finalSpoken = "Maaf kijiye boss, server abhi thoda busy hai."
                     break
                 }
 
@@ -286,12 +329,12 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 if (speakText.isNotEmpty()) finalSpoken = speakText
 
                 if (action == "done") {
-                    if (finalSpoken.isEmpty()) finalSpoken = res.optString("summary", "Kaam mukammal ho gaya.")
+                    if (finalSpoken.isEmpty()) finalSpoken = res.optString("summary", "Ji boss, kaam ho gaya.")
                     break
                 }
 
                 if (acc == null) {
-                    finalSpoken = "Poora mobile control karne ke liye pehle Accessibility permission ON karein."
+                    finalSpoken = "Boss, pehle Accessibility permission on kar dein."
                     break
                 }
 
@@ -326,9 +369,9 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                         }
                         history.add("key")
                     }
-                    "wait" -> delay((res.optDouble("seconds", 2.0) * 1000).toLong())
+                    "wait" -> delay((res.optDouble("seconds", 1.0) * 1000).toLong())
                 }
-                delay(1500)
+                delay(900)
             }
             speakAndResume(finalSpoken)
         }
