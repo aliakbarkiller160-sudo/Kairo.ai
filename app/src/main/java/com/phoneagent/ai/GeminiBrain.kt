@@ -86,6 +86,8 @@ Behavior Rules:
                     .addHeader("x-goog-api-key", cleanKey)
                     .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
 
+                var shouldMoveNextModel = false
+
                 client.newCall(reqBuilder.build()).execute().use { resp ->
                     val raw = resp.body?.string() ?: "Empty response"
                     if (resp.isSuccessful) {
@@ -106,8 +108,12 @@ Behavior Rules:
                     if (resp.code == 503 || resp.code == 429) {
                         Thread.sleep(700)
                     } else {
-                        break
+                        shouldMoveNextModel = true
                     }
+                }
+
+                if (shouldMoveNextModel) {
+                    break
                 }
             }
         }
