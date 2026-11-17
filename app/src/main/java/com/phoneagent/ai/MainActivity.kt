@@ -147,6 +147,15 @@ class MainActivity : AppCompatActivity() {
         WakeWordVoiceService.onCreditUsed = { _ -> refreshCreditsUI() }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 101 && hasRequiredPermissions()) {
+            val wakeName = etWakeName.text.toString().trim().ifEmpty { "Kairo" }
+            startKairoService(null)
+            Toast.makeText(this, "$wakeName Command-Only Mode Active!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun startKairoService(manualCommand: String?) {
         val serviceIntent = Intent(this, WakeWordVoiceService::class.java).apply {
             if (!manualCommand.isNullOrBlank()) {
