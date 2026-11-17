@@ -11,15 +11,15 @@ import java.util.concurrent.TimeUnit
 class GeminiBrain(private val apiKey: String, private val agentName: String = "Kairo") {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(25, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    // Ultra-fast model first + automatic fallback so 503 never stops Kairo
+    // Exact working ultra-fast models recommended by Google API
     private val modelQueue = listOf(
-        "gemini-3.8-flash-lite",
-        "gemini-3.8-flash",
-        "gemini-2.5-flash-lite"
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-3.8-flash"
     )
 
     private val systemPrompt = """
