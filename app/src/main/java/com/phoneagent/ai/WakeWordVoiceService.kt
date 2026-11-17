@@ -4,8 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
@@ -17,6 +15,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import java.util.Locale
@@ -42,10 +41,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     @Volatile private var isExecutingTask = false
     @Volatile private var cancelCurrentTask = false
     private var conversationActiveUntil = 0L // JARVIS 15-second continuous follow-up window
-
-    private var isBeepMuted = false
-    private var savedNotifVolume = -1
-    private var savedSystemVolume = -1
 
     override fun onCreate() {
         super.onCreate()
@@ -84,67 +79,84 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            isTtsReady = true
-            tts?.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
+            val prefs = getSharedPreferences("agent_prefs", MODE_PRIVATE)
+            val savedVoiceName = prefs.getString("kairo_locked_voice", null)
+            val allVoices = try { tts?.voices?.toList() ?: emptyList() } catch (_: Exception) { emptyList() }
+
+            // Permanent priority order for Kairo's single cute female signature voice
+            val preferredVoiceOrder = listOf(
+                "en-in-x-end-local",
+                "en-in-x-ene-local",
+                "en-us-x-sfg-local",
+                "en-us-x-iol-local",
+                "en-us-x-tpf-local",
+                "en-gb-x-gba-local",
+                "hi-in-x-hid-local"
             )
 
-            // South Asian locales (en-IN / hi-IN / ur-PK) pronounce Roman Urdu & English clearly & sweetly
-            val preferredLocales = listOf(
-                Locale("en", "IN"),
-                Locale("hi", "IN"),
-                Locale("ur", "PK"),
-                Locale.US
-            )
-            for (loc in preferredLocales) {
-                val res = tts?.isLanguageAvailable(loc) ?: TextToSpeech.LANG_NOT_SUPPORTED
-                if (res == TextToSpeech.LANG_AVAILABLE || res == TextToSpeech.LANG_COUNTRY_AVAILABLE) {
-                    tts?.language = loc
-                    break
+            var selectedVoice: Voice? = null
+
+            // 1. Always load the exact previously locked signature voice first so voice NEVER changes
+            if (!savedVoiceName.isNullOrBlank()) {
+                selectedVoice = allVoices.firstOrNull { it.name == savedVoiceName }
+            }
+
+            // 2. Otherwise pick the #1 best available cute offline voice and lock it permanently
+            if (selectedVoice == null) {
+                for (targetName in preferredVoiceOrder) {
+                    val match = allVoices.firstOrNull { it.name.equals(targetName, ignoreCase = true) }
+                    if (match != null) {
+                        selectedVoice = match
+                        break
+                    }
                 }
             }
 
-            // Pick sweetest female/soft voice available on the phone
-            try {
-                val cuteVoice = tts?.voices?.firstOrNull { v ->
+            // 3. Fallback to any offline female English voice
+            if (selectedVoice == null) {
+                selectedVoice = allVoices.firstOrNull { v ->
                     !v.isNetworkConnectionRequired &&
-                    (v.name.contains("female", true) ||
-                     v.name.contains("sfg", true) ||
-                     v.name.contains("iol", true) ||
-                     v.name.contains("in-x-end", true) ||
-                     v.name.contains("in-x-hid", true) ||
-                     v.name.contains("en-in", true))
+                    v.locale.language == "en" &&
+                    (v.name.contains("female", true) || v.name.contains("sfg", true) || v.name.contains("end", true))
                 }
-                if (cuteVoice != null) {
-                    tts?.voice = cuteVoice
-                }
-            } catch (_: Exception) {}
+            }
 
-            // Cute, innocent & crystal-clear vocal tuning
-            tts?.setPitch(1.16f)
+            if (selectedVoice != null) {
+                tts?.language = selectedVoice.locale
+                tts?.voice = selectedVoice
+                prefs.edit().putString("kairo_locked_voice", selectedVoice.name).apply()
+            } else {
+                val res = tts?.setLanguage(Locale("en", "IN")) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts?.setLanguage(Locale.US)
+                }
+            }
+
+            // Fixed cute, innocent & crystal-clear signature tone
+            tts?.setPitch(1.18f)
             tts?.setSpeechRate(0.95f)
 
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) {
                     isExecutingTask = false
-                    // JARVIS continuous conversation window (15 seconds without repeating wake word)
                     conversationActiveUntil = System.currentTimeMillis() + 15_000L
                     updateState("LISTENING (FOLLOW-UP)")
                     mainHandler.post { startListeningCycle() }
                 }
+                @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                    log("⚠️ TTS Audio Error — phone Media Volume check karein.")
-                    isExecutingTask = false
-                    updateState("LISTENING (JARVIS)")
-                    mainHandler.post { startListeningCycle() }
+                    recoverFromTtsError(-1)
+                }
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    recoverFromTtsError(errorCode)
                 }
             })
 
-            log("🔊 Voice Engine Ready!")
+            isTtsReady = true
+            val lockedLabel = selectedVoice?.name ?: tts?.language?.toString() ?: "Default"
+            log("🔊 Kairo Signature Voice Locked: $lockedLabel")
+
             val queued = pendingSpeech
             if (!queued.isNullOrBlank()) {
                 pendingSpeech = null
@@ -153,25 +165,22 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 startListeningCycle()
             }
         } else {
-            log("❌ TTS Voice Engine init failed (code=$status). Phone Settings -> Text-to-Speech mein Google TTS select karein.")
+            log("❌ TTS Engine init failed (code=$status). Settings -> Text-to-Speech check karein.")
             startListeningCycle()
         }
     }
 
-    private fun muteRecognizerBeep(mute: Boolean) {
+    private fun recoverFromTtsError(errorCode: Int) {
+        log("⚠️ TTS Fallback (code=$errorCode) — Default US voice active.")
         try {
-            if (mute && !isBeepMuted) {
-                savedNotifVolume = audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION)
-                savedSystemVolume = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM)
-                audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0)
-                audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0)
-                isBeepMuted = true
-            } else if (!mute && isBeepMuted) {
-                if (savedNotifVolume >= 0) audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, savedNotifVolume, 0)
-                if (savedSystemVolume >= 0) audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, savedSystemVolume, 0)
-                isBeepMuted = false
-            }
+            getSharedPreferences("agent_prefs", MODE_PRIVATE).edit().remove("kairo_locked_voice").apply()
+            tts?.setLanguage(Locale.US)
+            tts?.setPitch(1.18f)
+            tts?.setSpeechRate(0.95f)
         } catch (_: Exception) {}
+        isExecutingTask = false
+        updateState("LISTENING (JARVIS)")
+        mainHandler.post { startListeningCycle() }
     }
 
     private fun ensureSpeakerAudible() {
@@ -179,23 +188,12 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
             val curVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
             if (curVol < (maxVol * 0.5).toInt()) {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (maxVol * 0.8).toInt(), 0)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val focusReq = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                            .build()
-                    ).build()
-                audioManager.requestAudioFocus(focusReq)
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (maxVol * 0.85).toInt(), 0)
             }
         } catch (_: Exception) {}
     }
 
     private fun speakAndResume(text: String) {
-        muteRecognizerBeep(false)
         ensureSpeakerAudible()
 
         if (text.isBlank()) {
@@ -220,15 +218,14 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             .trim()
 
         if (cleanVoiceText.isNotEmpty()) {
-            val params = Bundle().apply {
-                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
-                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
-            }
-            val res = tts?.speak(cleanVoiceText, TextToSpeech.QUEUE_FLUSH, params, "reply_id")
+            // Re-lock signature pitch & rate before every reply so tone stays 100% consistent
+            tts?.setPitch(1.18f)
+            tts?.setSpeechRate(0.95f)
+            // Standard null params prevents Infinix/XOS Bundle synthesis errors
+            val res = tts?.speak(cleanVoiceText, TextToSpeech.QUEUE_FLUSH, null, "reply_id")
             if (res == TextToSpeech.ERROR) {
-                log("❌ TTS speak() returned ERROR!")
-                isExecutingTask = false
-                startListeningCycle()
+                log("❌ TTS speak() error — switching to US fallback.")
+                recoverFromTtsError(-2)
             }
         } else {
             isExecutingTask = false
@@ -244,7 +241,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             return
         }
         try {
-            muteRecognizerBeep(true)
             speechRecognizer?.destroy()
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -512,7 +508,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         isRunning = false
         instance = null
-        muteRecognizerBeep(false)
         speechRecognizer?.destroy()
         tts?.shutdown()
         scope.cancel()
