@@ -102,10 +102,11 @@ Behavior Rules:
         var lastError = "Unknown API error"
 
         for (model in modelQueue) {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$cleanKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
             val req = Request.Builder()
                 .url(url)
                 .addHeader("Content-Type", "application/json")
+                .addHeader("x-goog-api-key", cleanKey)
                 .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
