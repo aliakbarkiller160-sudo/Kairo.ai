@@ -15,14 +15,15 @@ class GeminiBrain(private val apiKey: String, private val agentName: String = "K
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // Groq ultra-fast free models (Vision + Text)
+    // Active Groq Vision + Ultra-Fast Text Models
     private val groqVisionModels = listOf(
         "meta-llama/llama-4-scout-17b-16e-instruct",
-        "llama-3.2-90b-vision-preview"
+        "meta-llama/llama-4-maverick-17b-128e-instruct"
     )
     private val groqTextModels = listOf(
         "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant"
+        "openai/gpt-oss-120b",
+        "qwen/qwen3-32b"
     )
 
     private val systemPrompt = """
@@ -67,7 +68,12 @@ Behavior Rules:
         screenshotBase64: String?,
         uiTreeSummary: String = ""
     ): JSONObject {
-        val cleanKey = apiKey.trim()
+        // Auto-fix capital 'Gsk_' to lowercase 'gsk_' if pasted with auto-caps
+        var cleanKey = apiKey.trim()
+        if (cleanKey.startsWith("Gsk_")) {
+            cleanKey = "gsk_" + cleanKey.substring(4)
+        }
+
         val histText = if (history.isEmpty()) "(none)" else history.takeLast(8).joinToString("\n")
 
         val promptBuilder = StringBuilder()
@@ -133,7 +139,7 @@ Behavior Rules:
             }
         }
 
-        // If vision models fail for any reason, fallback automatically to text-only with UI Tree coordinates
+        // Fallback to text models using UI Tree coordinates if vision models fail
         if (screenshotBase64 != null) {
             return askNextAction(goal, history, null, uiTreeSummary)
         }
