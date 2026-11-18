@@ -1,6 +1,5 @@
 package com.phoneagent.ai
 
-import android.accessibilityservice.AccessibilityService
 import android.app.*
 import android.content.Context
 import android.content.Intent
@@ -41,7 +40,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     @Volatile private var isExecutingTask = false
     @Volatile private var isSpeaking = false
     @Volatile private var cancelCurrentTask = false
-    private var conversationActiveUntil = 0L // 18-second JARVIS follow-up window
+    private var conversationActiveUntil = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -60,7 +59,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         }
         val notif = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Kairo AI • JARVIS Mode Active 🛡️")
-            .setContentText("'Kairo' bol kar baat karein ya hukam dein...")
+            .setContentText("'Kairo' bol kar baat karein...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
         startForeground(1001, notif)
@@ -74,44 +73,38 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         }
         updateState("LISTENING (JARVIS)")
         log("🛡️ Kairo JARVIS Mode Active — 'Kairo' bol kar baat karein!")
-        speakAndResume("Ji boss, Kairo online hai! Hukam karein.")
+        speakAndResume("Ji boss, Kairo online hai. Hukam karein.")
         return START_STICKY
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             val prefs = getSharedPreferences("agent_prefs", MODE_PRIVATE)
-            val savedVoiceName = prefs.getString("kairo_locked_voice", null)
             val allVoices = try { tts?.voices?.toList() ?: emptyList() } catch (_: Exception) { emptyList() }
 
+            // Natural, clear voices (Hindi/Urdu/Indian-English handle Roman Urdu pronunciation best)
             val preferredVoiceOrder = listOf(
-                "en-in-x-end-local",
+                "hi-in-x-hia-local",
+                "hi-in-x-hie-local",
+                "ur-pk-x-urb-local",
                 "en-in-x-ene-local",
-                "en-us-x-sfg-local",
-                "en-us-x-iol-local",
-                "en-us-x-tpf-local",
-                "en-gb-x-gba-local",
-                "hi-in-x-hid-local"
+                "en-in-x-end-local",
+                "en-us-x-sfg-local"
             )
 
             var selectedVoice: Voice? = null
-            if (!savedVoiceName.isNullOrBlank()) {
-                selectedVoice = allVoices.firstOrNull { it.name == savedVoiceName }
-            }
-            if (selectedVoice == null) {
-                for (targetName in preferredVoiceOrder) {
-                    val match = allVoices.firstOrNull { it.name.equals(targetName, ignoreCase = true) }
-                    if (match != null) {
-                        selectedVoice = match
-                        break
-                    }
+            for (targetName in preferredVoiceOrder) {
+                val match = allVoices.firstOrNull { it.name.equals(targetName, ignoreCase = true) }
+                if (match != null) {
+                    selectedVoice = match
+                    break
                 }
             }
+
             if (selectedVoice == null) {
                 selectedVoice = allVoices.firstOrNull { v ->
                     !v.isNetworkConnectionRequired &&
-                    v.locale.language == "en" &&
-                    (v.name.contains("female", true) || v.name.contains("sfg", true) || v.name.contains("end", true))
+                    (v.locale.language == "hi" || v.locale.language == "ur" || v.locale.country == "IN")
                 }
             }
 
@@ -120,14 +113,15 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 tts?.voice = selectedVoice
                 prefs.edit().putString("kairo_locked_voice", selectedVoice.name).apply()
             } else {
-                val res = tts?.setLanguage(Locale("en", "IN")) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                val res = tts?.setLanguage(Locale("hi", "IN")) ?: TextToSpeech.LANG_NOT_SUPPORTED
                 if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    tts?.setLanguage(Locale.US)
+                    tts?.setLanguage(Locale("en", "IN"))
                 }
             }
 
-            tts?.setPitch(1.15f)
-            tts?.setSpeechRate(0.98f)
+            // Natural human pitch & speed (no robotic squeak)
+            tts?.setPitch(1.02f)
+            tts?.setSpeechRate(0.96f)
 
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
@@ -136,9 +130,9 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 override fun onDone(utteranceId: String?) {
                     isSpeaking = false
                     isExecutingTask = false
-                    conversationActiveUntil = System.currentTimeMillis() + 18_000L
+                    conversationActiveUntil = System.currentTimeMillis() + 20_000L
                     updateState("LISTENING (FOLLOW-UP)")
-                    mainHandler.postDelayed({ startListeningCycle() }, 300)
+                    mainHandler.postDelayed({ startListeningCycle() }, 250)
                 }
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
@@ -151,7 +145,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
             isTtsReady = true
             val lockedLabel = selectedVoice?.name ?: tts?.language?.toString() ?: "Default"
-            log("🔊 Kairo Voice Locked: $lockedLabel")
+            log("🔊 Natural Voice Active: $lockedLabel")
 
             val queued = pendingSpeech
             if (!queued.isNullOrBlank()) {
@@ -161,23 +155,21 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 startListeningCycle()
             }
         } else {
-            log("❌ TTS Engine init failed (code=$status).")
+            log("❌ TTS Engine init failed.")
             startListeningCycle()
         }
     }
 
     private fun recoverFromTtsError(errorCode: Int) {
-        log("⚠️ TTS Fallback (code=$errorCode) — Default US voice active.")
         try {
-            getSharedPreferences("agent_prefs", MODE_PRIVATE).edit().remove("kairo_locked_voice").apply()
             tts?.setLanguage(Locale.US)
-            tts?.setPitch(1.15f)
-            tts?.setSpeechRate(0.98f)
+            tts?.setPitch(1.02f)
+            tts?.setSpeechRate(0.96f)
         } catch (_: Exception) {}
         isSpeaking = false
         isExecutingTask = false
         updateState("LISTENING (JARVIS)")
-        mainHandler.postDelayed({ startListeningCycle() }, 300)
+        mainHandler.postDelayed({ startListeningCycle() }, 250)
     }
 
     private fun ensureSpeakerAudible() {
@@ -229,8 +221,8 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             .trim()
 
         if (cleanVoiceText.isNotEmpty()) {
-            tts?.setPitch(1.15f)
-            tts?.setSpeechRate(0.98f)
+            tts?.setPitch(1.02f)
+            tts?.setSpeechRate(0.96f)
             val res = tts?.speak(cleanVoiceText, TextToSpeech.QUEUE_FLUSH, null, "reply_id")
             if (res == TextToSpeech.ERROR) {
                 recoverFromTtsError(-2)
@@ -250,7 +242,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        // Prevent mic lockups when switching from WhatsApp or other media apps
         if (audioManager.mode == AudioManager.MODE_IN_CALL) {
             restartListenerDelayed(1500)
             return
@@ -261,11 +252,13 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ur-PK", "hi-IN", "en-US"))
+                // Primary Urdu-Pakistan + English-India so both Urdu & English words are captured clearly
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK")
+                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("en-IN", "en-US", "hi-IN"))
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1100L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 900L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1300L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
             }
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
@@ -284,19 +277,22 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
                 override fun onResults(results: Bundle?) {
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val bestMatch = matches?.firstOrNull()?.trim() ?: ""
+                    // Prefer English/Roman script candidate if available, otherwise first result
+                    val bestMatch = matches?.firstOrNull { it.any { ch -> ch in 'a'..'z' || ch in 'A'..'Z' } }
+                        ?: matches?.firstOrNull()?.trim()
+                        ?: ""
                     if (bestMatch.isNotEmpty()) {
                         handleSpokenText(bestMatch, matches ?: emptyList())
                     } else {
-                        restartListenerDelayed(250)
+                        restartListenerDelayed(200)
                     }
                 }
 
                 override fun onError(error: Int) {
                     val delayMs = when (error) {
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1000L
-                        SpeechRecognizer.ERROR_AUDIO -> 1200L
-                        else -> 350L
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 800L
+                        SpeechRecognizer.ERROR_AUDIO -> 1000L
+                        else -> 250L
                     }
                     restartListenerDelayed(delayMs)
                 }
@@ -304,7 +300,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
             log("⚠️ Mic Error: ${e.message}")
-            restartListenerDelayed(900)
+            restartListenerDelayed(800)
         }
     }
 
@@ -319,7 +315,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             listOf(
                 "kairo", "cairo", "kyro", "kero", "kiro", "qairo",
                 "caro", "kairon", "kairow", "kairoh", "karo", "hero",
-                "کائرو", "کیرو", "کairo"
+                "کائرو", "کیرو", "کairo", "کیرو"
             )
         } else {
             listOf(wakeNameLower)
@@ -350,7 +346,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
         if (!calledByName && !inFollowUpWindow) {
             log("👂 Mic sun raha hai (say '$wakeName'): $spoken")
-            restartListenerDelayed(200)
+            restartListenerDelayed(150)
             return
         }
 
@@ -362,7 +358,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
         val credits = prefs.getInt("credits_balance", 500)
         if (credits <= 0) {
-            log("⚠️ Credits khatam! Top-up section se recharge karein.")
+            log("⚠️ Credits khatam!")
             speakAndResume("Boss, aap ke Kairo credits khatam ho gaye hain.")
             return
         }
@@ -394,11 +390,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         val apiKey = (prefs.getString("api_key", "") ?: "").trim()
         if (apiKey.isEmpty()) {
             log("⚠️ API Key set nahi hai!")
-            return
-        }
-        val credits = prefs.getInt("credits_balance", 500)
-        if (credits <= 0) {
-            log("⚠️ Credits 0 hain! Top-up karein.")
             return
         }
         isExecutingTask = true
@@ -520,7 +511,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                     }
                     "wait" -> delay((res.optDouble("seconds", 1.0) * 1000).toLong())
                 }
-                delay(750)
+                delay(700)
             }
             speakAndResume(finalSpoken)
         }
