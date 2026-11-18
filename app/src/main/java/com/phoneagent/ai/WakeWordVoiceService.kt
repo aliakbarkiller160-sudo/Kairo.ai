@@ -40,7 +40,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     @Volatile private var isExecutingTask = false
     @Volatile private var isSpeaking = false
     @Volatile private var cancelCurrentTask = false
-    private var conversationActiveUntil = 0L
+    @Volatile private var activeChatUntil = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -54,12 +54,12 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     private fun startForegroundNotification() {
         val channelId = "kairo_voice_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Kairo AI JARVIS Mode", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(channelId, "Kairo AI Standby", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
         val notif = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Kairo AI • JARVIS Mode Active 🛡️")
-            .setContentText("'Kairo' bol kar baat karein...")
+            .setContentTitle("Kairo AI • Standby Mode")
+            .setContentText("Say 'Kairo' whenever you need me.")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
         startForeground(1001, notif)
@@ -71,9 +71,9 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             triggerDirectCommand(manualCmd)
             return START_STICKY
         }
-        updateState("LISTENING (JARVIS)")
-        log("🛡️ Kairo JARVIS Mode Active — 'Kairo' bol kar baat karein!")
-        speakAndResume("Ji boss, Kairo online hai. Hukam karein.")
+        activeChatUntil = 0L
+        updateState("STANDBY (WAKE-WORD)")
+        speakAndResume("Kairo online hai. Jab zaroorat ho, bas mera naam lena.", keepChatOpen = false)
         return START_STICKY
     }
 
@@ -118,8 +118,8 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 }
             }
 
-            tts?.setPitch(1.02f)
-            tts?.setSpeechRate(0.96f)
+            tts?.setPitch(1.0f)
+            tts?.setSpeechRate(1.02f)
 
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
@@ -128,27 +128,35 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 override fun onDone(utteranceId: String?) {
                     isSpeaking = false
                     isExecutingTask = false
-                    conversationActiveUntil = System.currentTimeMillis() + 25_000L
-                    updateState("LISTENING (FOLLOW-UP)")
-                    mainHandler.postDelayed({ startListeningCycle() }, 250)
+
+                    if (System.currentTimeMillis() < activeChatUntil) {
+                        updateState("ACTIVE CHAT (NO WAKE-WORD)")
+                        mainHandler.removeCallbacksAndMessages("sleep_token")
+                        val remaining = (activeChatUntil - System.currentTimeMillis()).coerceAtLeast(1000L)
+                        mainHandler.postAtTime({
+                            if (!isExecutingTask && !isSpeaking && System.currentTimeMillis() >= activeChatUntil) {
+                                updateState("STANDBY (WAKE-WORD)")
+                            }
+                        }, "sleep_token", android.os.SystemClock.uptimeMillis() + remaining)
+                    } else {
+                        updateState("STANDBY (WAKE-WORD)")
+                    }
+                    mainHandler.postDelayed({ startListeningCycle() }, 200)
                 }
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                    recoverFromTtsError(-1)
+                    recoverFromTtsError()
                 }
                 override fun onError(utteranceId: String?, errorCode: Int) {
-                    recoverFromTtsError(errorCode)
+                    recoverFromTtsError()
                 }
             })
 
             isTtsReady = true
-            val lockedLabel = selectedVoice?.name ?: tts?.language?.toString() ?: "Default"
-            log("🔊 Natural Voice Active: $lockedLabel")
-
             val queued = pendingSpeech
             if (!queued.isNullOrBlank()) {
                 pendingSpeech = null
-                speakAndResume(queued)
+                speakAndResume(queued, keepChatOpen = false)
             } else {
                 startListeningCycle()
             }
@@ -158,15 +166,15 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun recoverFromTtsError(errorCode: Int) {
+    private fun recoverFromTtsError() {
         try {
             tts?.setLanguage(Locale.US)
-            tts?.setPitch(1.02f)
-            tts?.setSpeechRate(0.96f)
+            tts?.setPitch(1.0f)
+            tts?.setSpeechRate(1.02f)
         } catch (_: Exception) {}
         isSpeaking = false
         isExecutingTask = false
-        updateState("LISTENING (JARVIS)")
+        updateState("STANDBY (WAKE-WORD)")
         mainHandler.postDelayed({ startListeningCycle() }, 250)
     }
 
@@ -192,14 +200,20 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         speechRecognizer = null
     }
 
-    private fun speakAndResume(text: String) {
+    private fun speakAndResume(text: String, keepChatOpen: Boolean = true) {
         stopSpeechRecognizerCleanly()
         ensureSpeakerAudible()
+
+        if (keepChatOpen) {
+            activeChatUntil = System.currentTimeMillis() + 12_000L
+        } else {
+            activeChatUntil = 0L
+        }
 
         if (text.isBlank()) {
             isSpeaking = false
             isExecutingTask = false
-            updateState("LISTENING (JARVIS)")
+            updateState(if (keepChatOpen) "ACTIVE CHAT (NO WAKE-WORD)" else "STANDBY (WAKE-WORD)")
             startListeningCycle()
             return
         }
@@ -219,16 +233,16 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             .trim()
 
         if (cleanVoiceText.isNotEmpty()) {
-            tts?.setPitch(1.02f)
-            tts?.setSpeechRate(0.96f)
+            tts?.setPitch(1.0f)
+            tts?.setSpeechRate(1.02f)
             val res = tts?.speak(cleanVoiceText, TextToSpeech.QUEUE_FLUSH, null, "reply_id")
             if (res == TextToSpeech.ERROR) {
-                recoverFromTtsError(-2)
+                recoverFromTtsError()
             }
         } else {
             isSpeaking = false
             isExecutingTask = false
-            updateState("LISTENING (JARVIS)")
+            updateState(if (keepChatOpen) "ACTIVE CHAT (NO WAKE-WORD)" else "STANDBY (WAKE-WORD)")
             startListeningCycle()
         }
     }
@@ -254,8 +268,8 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("en-IN", "en-US", "hi-IN"))
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1300L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1100L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 850L)
             }
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
@@ -295,7 +309,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             })
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
-            log("⚠️ Mic Error: ${e.message}")
             restartListenerDelayed(800)
         }
     }
@@ -351,31 +364,40 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         if (lower == "stop" || lower == "ruk jao" || lower == "bas karo" || lower == "kairo stop" || spoken.contains("رک جاؤ") || spoken.contains("بس کرو")) {
             cancelCurrentTask = true
             isExecutingTask = false
-            conversationActiveUntil = 0L
+            activeChatUntil = 0L
             log("🛑 Task stopped by voice.")
-            speakAndResume("Ji boss, ruk gaya hoon.")
+            speakAndResume("Theek hai, ruk gaya hoon.", keepChatOpen = false)
             return
         }
 
         val calledByName = isWakeWordDetected(allCandidates.ifEmpty { listOf(spoken) }, wakeName.lowercase())
-        val inFollowUpWindow = System.currentTimeMillis() < conversationActiveUntil
+        val inActiveChat = System.currentTimeMillis() < activeChatUntil
 
-        if (!calledByName && !inFollowUpWindow) {
-            log("👂 Mic sun raha hai (say '$wakeName'): $spoken")
+        // Completely silent and invisible unless "Kairo" is called OR currently inside the 12s conversation window
+        if (!calledByName && !inActiveChat) {
+            updateState("STANDBY (WAKE-WORD)")
             restartListenerDelayed(150)
             return
         }
 
+        // End active chat immediately if user says bye/thanks
+        if (lower == "bye" || lower == "ok bye" || lower == "bas" || lower == "shukriya" || lower == "thanks" || spoken.contains("شکریہ") || spoken.contains("بس")) {
+            activeChatUntil = 0L
+            log("👤 Tum: $spoken")
+            speakAndResume("Theek hai, jab zaroorat ho bula lena.", keepChatOpen = false)
+            return
+        }
+
         if (apiKey.isEmpty()) {
-            log("⚠️ API Key missing! Dashboard mein key paste karein.")
-            speakAndResume("Ji boss, pehle dashboard mein API key save kar dein.")
+            log("⚠️ API Key missing! API & Setup mein key paste karein.")
+            speakAndResume("Yaar pehle API key toh set kar lo settings mein.", keepChatOpen = false)
             return
         }
 
         val credits = prefs.getInt("credits_balance", 500)
         if (credits <= 0) {
             log("⚠️ Credits khatam!")
-            speakAndResume("Boss, aap ke Kairo credits khatam ho gaye hain.")
+            speakAndResume("Credits khatam ho gaye hain, top up kar lo.", keepChatOpen = false)
             return
         }
 
@@ -388,16 +410,17 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         listOf(
             wakeName, "cairo", "kyro", "kero", "kiro", "qairo", "kando",
             "caro", "kairon", "kairow", "kairoh", "کارو", "کائرو", "کیرو", "کانڈو",
-            "hey", "hi", "hello", "suno", "ji", "یار"
+            "hey", "hi", "hello", "suno", "ji", "یار", "bhai", "sun"
         ).forEach {
             cleaned = cleaned.replace(it, "", ignoreCase = true)
         }
+
         if (cleaned.trim().length <= 2) {
-            speakAndResume("Ji boss! Kairo hazir hai, hukam karein.")
+            speakAndResume("Haan bolo, kya scene hai?", keepChatOpen = true)
             return
         }
 
-        val normalizedGoal = normalizeUrduCommand(spoken)
+        val normalizedGoal = normalizeUrduCommand(cleaned.trim())
         executeAgentCommand(apiKey, wakeName, normalizedGoal)
     }
 
@@ -466,7 +489,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                     withContext(Dispatchers.IO) { brain.askNextAction(goal, history, shot, uiTree) }
                 } catch (e: Exception) {
                     log("❌ API Error: ${e.message}")
-                    finalSpoken = "Maaf kijiye boss, server se rabta nahi ho saka."
+                    finalSpoken = "Yaar abhi network ya server ka thoda issue aa raha hai, zara check karna."
                     break
                 }
 
@@ -476,12 +499,12 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 if (speakText.isNotEmpty()) finalSpoken = speakText
 
                 if (action == "done") {
-                    if (finalSpoken.isEmpty()) finalSpoken = res.optString("summary", "Ji boss, kaam ho gaya.")
+                    if (finalSpoken.isEmpty()) finalSpoken = res.optString("summary", "Done hai, ho gaya.")
                     break
                 }
 
                 if (acc == null) {
-                    finalSpoken = "Boss, pehle Accessibility permission on kar dein."
+                    finalSpoken = "Pehle Accessibility permission on kar do taake main screen control kar sakoon."
                     break
                 }
 
@@ -490,7 +513,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                     "open_app" -> {
                         val app = res.optString("app").lowercase().trim()
                         if (app == lastOpenedApp) {
-                            if (finalSpoken.isEmpty()) finalSpoken = "Ji boss, $app khol diya hai."
+                            if (finalSpoken.isEmpty()) finalSpoken = "Done, $app khol diya hai."
                             break
                         }
                         lastOpenedApp = app
@@ -501,7 +524,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                         val gLower = goal.lowercase()
                         val isSimpleOpen = !listOf("aur", "and", "par", "pe", "search", "play", "chalao", "likho", "send", "bhejo", "bhej", "msg", "message", "ko").any { gLower.contains(it) }
                         if (isSimpleOpen) {
-                            if (finalSpoken.isEmpty()) finalSpoken = "Ji boss, $app khol diya hai."
+                            if (finalSpoken.isEmpty()) finalSpoken = "Done, $app khol diya hai."
                             break
                         }
                         delay(1400)
@@ -531,7 +554,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 }
                 delay(700)
             }
-            speakAndResume(finalSpoken)
+            speakAndResume(finalSpoken, keepChatOpen = true)
         }
     }
 
