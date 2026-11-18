@@ -65,7 +65,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Build entire 4-Section JARVIS HUD programmatically (no XML edits needed!)
         setContentView(buildJarvisDashboardUI())
 
         val prefs = getSharedPreferences("agent_prefs", MODE_PRIVATE)
@@ -78,7 +77,6 @@ class MainActivity : AppCompatActivity() {
         refreshCreditsUI()
         switchTab(0)
 
-        // Service Callbacks -> Auto-route Chat vs Live Voice vs Errors
         WakeWordVoiceService.onLogUpdate = { msg -> routeServiceMessage(msg) }
         WakeWordVoiceService.onStateChange = { state -> updateAgentBadge(state) }
         WakeWordVoiceService.onCreditUsed = { _ -> refreshCreditsUI() }
@@ -291,7 +289,7 @@ class MainActivity : AppCompatActivity() {
             setTypeface(null, Typeface.BOLD)
             setPadding(dp(4), dp(4), dp(4), dp(4))
             setOnClickListener {
-                tvChatHistory.text = "🤖 Kairo: Chat cleared. Hukam karein boss!"
+                tvChatHistory.text = "🤖 Kairo: Chat clear kar di hai. Jab zaroorat ho bas 'Kairo' bolna."
             }
         }
 
@@ -309,7 +307,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         tvChatHistory = TextView(this).apply {
-            text = "🤖 Kairo: Assalam-o-Alaikum Boss! Neeche command likhein ya 'Kairo' bol kar baat karein."
+            text = "🤖 Kairo: Assalam-o-Alaikum! Jab zaroorat ho bas 'Kairo' bolna, main hazir hoon."
             setTextColor(0xFFE2E8F0.toInt())
             textSize = 14f
             setLineSpacing(dp(4).toFloat(), 1f)
@@ -674,7 +672,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         startKairoService(null)
-        Toast.makeText(this, "$wakeName JARVIS Mode Active!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "$wakeName Standby Mode Active!", Toast.LENGTH_SHORT).show()
     }
 
     private fun handleSendCommand() {
@@ -787,7 +785,7 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == 101 && hasRequiredPermissions()) {
             val wakeName = etWakeName.text.toString().trim().ifEmpty { "Kairo" }
             startKairoService(null)
-            Toast.makeText(this, "$wakeName JARVIS Mode Active!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "$wakeName Standby Mode Active!", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -845,7 +843,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshCreditsUI()
-        updateAgentBadge(if (WakeWordVoiceService.isRunning) "LISTENING (JARVIS)" else "OFFLINE")
+        updateAgentBadge(if (WakeWordVoiceService.isRunning) "STANDBY (WAKE-WORD)" else "OFFLINE")
 
         val isAccEnabled = AgentAccessibilityService.instance != null
         if (isAccEnabled) {
