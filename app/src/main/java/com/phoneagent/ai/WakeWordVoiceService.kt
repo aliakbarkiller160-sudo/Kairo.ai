@@ -39,8 +39,9 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     @Volatile private var isExecutingTask = false
+    @Volatile private var isSpeaking = false
     @Volatile private var cancelCurrentTask = false
-    private var conversationActiveUntil = 0L // JARVIS 15-second continuous follow-up window
+    private var conversationActiveUntil = 0L // 18-second JARVIS follow-up window
 
     override fun onCreate() {
         super.onCreate()
@@ -83,7 +84,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             val savedVoiceName = prefs.getString("kairo_locked_voice", null)
             val allVoices = try { tts?.voices?.toList() ?: emptyList() } catch (_: Exception) { emptyList() }
 
-            // Permanent priority order for Kairo's single cute female signature voice
             val preferredVoiceOrder = listOf(
                 "en-in-x-end-local",
                 "en-in-x-ene-local",
@@ -95,13 +95,9 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             )
 
             var selectedVoice: Voice? = null
-
-            // 1. Always load the exact previously locked signature voice first so voice NEVER changes
             if (!savedVoiceName.isNullOrBlank()) {
                 selectedVoice = allVoices.firstOrNull { it.name == savedVoiceName }
             }
-
-            // 2. Otherwise pick the #1 best available cute offline voice and lock it permanently
             if (selectedVoice == null) {
                 for (targetName in preferredVoiceOrder) {
                     val match = allVoices.firstOrNull { it.name.equals(targetName, ignoreCase = true) }
@@ -111,8 +107,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                     }
                 }
             }
-
-            // 3. Fallback to any offline female English voice
             if (selectedVoice == null) {
                 selectedVoice = allVoices.firstOrNull { v ->
                     !v.isNetworkConnectionRequired &&
@@ -132,17 +126,19 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // Fixed cute, innocent & crystal-clear signature tone
-            tts?.setPitch(1.18f)
-            tts?.setSpeechRate(0.95f)
+            tts?.setPitch(1.15f)
+            tts?.setSpeechRate(0.98f)
 
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
+                override fun onStart(utteranceId: String?) {
+                    isSpeaking = true
+                }
                 override fun onDone(utteranceId: String?) {
+                    isSpeaking = false
                     isExecutingTask = false
-                    conversationActiveUntil = System.currentTimeMillis() + 15_000L
+                    conversationActiveUntil = System.currentTimeMillis() + 18_000L
                     updateState("LISTENING (FOLLOW-UP)")
-                    mainHandler.post { startListeningCycle() }
+                    mainHandler.postDelayed({ startListeningCycle() }, 300)
                 }
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
@@ -155,7 +151,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
             isTtsReady = true
             val lockedLabel = selectedVoice?.name ?: tts?.language?.toString() ?: "Default"
-            log("🔊 Kairo Signature Voice Locked: $lockedLabel")
+            log("🔊 Kairo Voice Locked: $lockedLabel")
 
             val queued = pendingSpeech
             if (!queued.isNullOrBlank()) {
@@ -165,7 +161,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 startListeningCycle()
             }
         } else {
-            log("❌ TTS Engine init failed (code=$status). Settings -> Text-to-Speech check karein.")
+            log("❌ TTS Engine init failed (code=$status).")
             startListeningCycle()
         }
     }
@@ -175,16 +171,20 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         try {
             getSharedPreferences("agent_prefs", MODE_PRIVATE).edit().remove("kairo_locked_voice").apply()
             tts?.setLanguage(Locale.US)
-            tts?.setPitch(1.18f)
-            tts?.setSpeechRate(0.95f)
+            tts?.setPitch(1.15f)
+            tts?.setSpeechRate(0.98f)
         } catch (_: Exception) {}
+        isSpeaking = false
         isExecutingTask = false
         updateState("LISTENING (JARVIS)")
-        mainHandler.post { startListeningCycle() }
+        mainHandler.postDelayed({ startListeningCycle() }, 300)
     }
 
     private fun ensureSpeakerAudible() {
         try {
+            if (audioManager.mode != AudioManager.MODE_NORMAL) {
+                audioManager.mode = AudioManager.MODE_NORMAL
+            }
             val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
             val curVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
             if (curVol < (maxVol * 0.5).toInt()) {
@@ -193,22 +193,33 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         } catch (_: Exception) {}
     }
 
+    private fun stopSpeechRecognizerCleanly() {
+        try {
+            speechRecognizer?.stopListening()
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+        } catch (_: Exception) {}
+        speechRecognizer = null
+    }
+
     private fun speakAndResume(text: String) {
+        stopSpeechRecognizerCleanly()
         ensureSpeakerAudible()
 
         if (text.isBlank()) {
+            isSpeaking = false
             isExecutingTask = false
             updateState("LISTENING (JARVIS)")
             startListeningCycle()
             return
         }
 
-        // Queue speech until TTS engine finishes initializing so first greeting is never lost
         if (!isTtsReady) {
             pendingSpeech = text
             return
         }
 
+        isSpeaking = true
         updateState("SPEAKING")
         log("🗣️ Kairo: $text")
 
@@ -218,16 +229,14 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             .trim()
 
         if (cleanVoiceText.isNotEmpty()) {
-            // Re-lock signature pitch & rate before every reply so tone stays 100% consistent
-            tts?.setPitch(1.18f)
-            tts?.setSpeechRate(0.95f)
-            // Standard null params prevents Infinix/XOS Bundle synthesis errors
+            tts?.setPitch(1.15f)
+            tts?.setSpeechRate(0.98f)
             val res = tts?.speak(cleanVoiceText, TextToSpeech.QUEUE_FLUSH, null, "reply_id")
             if (res == TextToSpeech.ERROR) {
-                log("❌ TTS speak() error — switching to US fallback.")
                 recoverFromTtsError(-2)
             }
         } else {
+            isSpeaking = false
             isExecutingTask = false
             updateState("LISTENING (JARVIS)")
             startListeningCycle()
@@ -235,20 +244,28 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startListeningCycle() {
-        if (!isRunning || isExecutingTask) return
+        if (!isRunning || isExecutingTask || isSpeaking) return
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            log("❌ Speech Recognition service missing! Google App enable karein.")
+            log("❌ Speech Recognition missing! Google App enable karein.")
             return
         }
+
+        // Prevent mic lockups when switching from WhatsApp or other media apps
+        if (audioManager.mode == AudioManager.MODE_IN_CALL) {
+            restartListenerDelayed(1500)
+            return
+        }
+
         try {
-            speechRecognizer?.destroy()
+            stopSpeechRecognizerCleanly()
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
                 putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ur-PK", "hi-IN", "en-US"))
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1100L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 900L)
             }
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
@@ -256,21 +273,31 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() {}
-                override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.lowercase() ?: return
+                    if (partial == "stop" || partial == "kairo stop" || partial == "ruk jao") {
+                        cancelCurrentTask = true
+                    }
+                }
 
                 override fun onResults(results: Bundle?) {
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val spoken = matches?.firstOrNull()?.trim() ?: ""
-                    if (spoken.isNotEmpty()) {
-                        handleSpokenText(spoken)
+                    val bestMatch = matches?.firstOrNull()?.trim() ?: ""
+                    if (bestMatch.isNotEmpty()) {
+                        handleSpokenText(bestMatch, matches ?: emptyList())
                     } else {
-                        restartListenerDelayed(300)
+                        restartListenerDelayed(250)
                     }
                 }
 
                 override fun onError(error: Int) {
-                    val delayMs = if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 900L else 450L
+                    val delayMs = when (error) {
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1000L
+                        SpeechRecognizer.ERROR_AUDIO -> 1200L
+                        else -> 350L
+                    }
                     restartListenerDelayed(delayMs)
                 }
             })
@@ -282,30 +309,33 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun restartListenerDelayed(ms: Long) {
-        if (!isRunning || isExecutingTask) return
-        mainHandler.postDelayed({ startListeningCycle() }, ms)
+        if (!isRunning || isExecutingTask || isSpeaking) return
+        mainHandler.removeCallbacksAndMessages("listen_token")
+        mainHandler.postAtTime({ startListeningCycle() }, "listen_token", android.os.SystemClock.uptimeMillis() + ms)
     }
 
-    private fun isWakeWordDetected(spokenLower: String, wakeNameLower: String): Boolean {
-        if (spokenLower.contains(wakeNameLower)) return true
-        if (wakeNameLower == "kairo") {
-            val variants = listOf(
+    private fun isWakeWordDetected(allCandidates: List<String>, wakeNameLower: String): Boolean {
+        val variants = if (wakeNameLower == "kairo") {
+            listOf(
                 "kairo", "cairo", "kyro", "kero", "kiro", "qairo",
-                "caro", "kairon", "kairow", "kairoh", "hero", "karo",
+                "caro", "kairon", "kairow", "kairoh", "karo", "hero",
                 "کائرو", "کیرو", "کairo"
             )
-            return variants.any { spokenLower.contains(it) }
+        } else {
+            listOf(wakeNameLower)
         }
-        return false
+        return allCandidates.any { candidate ->
+            val lower = candidate.lowercase()
+            variants.any { v -> lower.contains(v) }
+        }
     }
 
-    private fun handleSpokenText(spoken: String) {
+    private fun handleSpokenText(spoken: String, allCandidates: List<String>) {
         val prefs = getSharedPreferences("agent_prefs", MODE_PRIVATE)
         val wakeName = (prefs.getString("wake_name", "Kairo") ?: "Kairo").trim()
         val apiKey = (prefs.getString("api_key", "") ?: "").trim()
         val lower = spoken.lowercase()
 
-        // Emergency Voice Stop
         if (lower == "stop" || lower == "ruk jao" || lower == "bas karo" || lower == "kairo stop") {
             cancelCurrentTask = true
             isExecutingTask = false
@@ -315,12 +345,12 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        val calledByName = isWakeWordDetected(lower, wakeName.lowercase())
+        val calledByName = isWakeWordDetected(allCandidates.ifEmpty { listOf(spoken) }, wakeName.lowercase())
         val inFollowUpWindow = System.currentTimeMillis() < conversationActiveUntil
 
         if (!calledByName && !inFollowUpWindow) {
             log("👂 Mic sun raha hai (say '$wakeName'): $spoken")
-            restartListenerDelayed(250)
+            restartListenerDelayed(200)
             return
         }
 
@@ -339,7 +369,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
         isExecutingTask = true
         cancelCurrentTask = false
-        speechRecognizer?.destroy()
+        stopSpeechRecognizerCleanly()
         log("👤 Tum: $spoken")
 
         var cleaned = spoken
@@ -373,7 +403,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         }
         isExecutingTask = true
         cancelCurrentTask = false
-        speechRecognizer?.destroy()
+        stopSpeechRecognizerCleanly()
         log("⌨️ Command: $command")
         executeAgentCommand(apiKey, wakeName, command)
     }
@@ -387,14 +417,13 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         mainHandler.post { onCreditUsed?.invoke(updated) }
     }
 
-    // Fast chat detection: skips heavy screenshot if user is just talking/asking a question
     private fun needsScreenControl(goal: String): Boolean {
         val g = goal.lowercase()
         val deviceKeywords = listOf(
             "open", "kholo", "khol", "chalao", "play", "search", "dhundo",
             "whatsapp", "youtube", "insta", "instagram", "facebook", "tiktok",
-            "chrome", "settings", "camera", "maps", "message", "call", "phone",
-            "scroll", "swipe", "tap", "click", "type", "likho", "send", "bhejo",
+            "chrome", "settings", "camera", "maps", "message", "msg", "call", "phone",
+            "scroll", "swipe", "tap", "click", "type", "likho", "send", "bhejo", "bhej",
             "back", "home", "volume", "wifi", "bluetooth", "screen", "app"
         )
         return deviceKeywords.any { g.contains(it) }
@@ -418,15 +447,17 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
                 val shot = if (useScreen) {
                     withContext(Dispatchers.IO) { acc?.captureScreenBase64() }
-                } else {
-                    null
-                }
+                } else null
+
+                val uiTree = if (useScreen) {
+                    withContext(Dispatchers.Main) { acc?.getUiTreeSummary() ?: "" }
+                } else ""
 
                 val res = try {
-                    withContext(Dispatchers.IO) { brain.askNextAction(goal, history, shot) }
+                    withContext(Dispatchers.IO) { brain.askNextAction(goal, history, shot, uiTree) }
                 } catch (e: Exception) {
                     log("❌ API Error: ${e.message}")
-                    finalSpoken = "Maaf kijiye boss, server abhi thoda busy hai."
+                    finalSpoken = "Maaf kijiye boss, server se rabta nahi ho saka."
                     break
                 }
 
@@ -449,7 +480,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 when (action) {
                     "open_app" -> {
                         val app = res.optString("app").lowercase().trim()
-                        // Anti-loop lock: never open the exact same app twice
                         if (app == lastOpenedApp) {
                             if (finalSpoken.isEmpty()) finalSpoken = "Ji boss, $app khol diya hai."
                             break
@@ -457,14 +487,16 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                         lastOpenedApp = app
                         log("📲 Opening: $app")
                         acc.openAppByName(app)
-                        history.add("Opened app '$app' successfully. If the user only asked to open this app, return action 'done' immediately.")
+                        history.add("Opened app '$app'.")
 
                         val gLower = goal.lowercase()
-                        val isSimpleOpen = !listOf("aur", "and", "par", "pe", "search", "play", "chalao", "likho", "send", "bhejo", "msg", "message").any { gLower.contains(it) }
+                        val isSimpleOpen = !listOf("aur", "and", "par", "pe", "search", "play", "chalao", "likho", "send", "bhejo", "bhej", "msg", "message", "ko").any { gLower.contains(it) }
                         if (isSimpleOpen) {
                             if (finalSpoken.isEmpty()) finalSpoken = "Ji boss, $app khol diya hai."
                             break
                         }
+                        delay(1400)
+                        continue
                     }
                     "tap" -> {
                         acc.performTap(res.optDouble("x").toFloat(), res.optDouble("y").toFloat())
@@ -482,16 +514,13 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                         history.add("Swiped screen")
                     }
                     "key" -> {
-                        when (res.optString("key")) {
-                            "home" -> acc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
-                            "recents" -> acc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
-                            else -> acc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                        }
-                        history.add("Pressed ${res.optString("key")}")
+                        val k = res.optString("key")
+                        acc.performKey(k)
+                        history.add("Pressed $k")
                     }
                     "wait" -> delay((res.optDouble("seconds", 1.0) * 1000).toLong())
                 }
-                delay(1100)
+                delay(750)
             }
             speakAndResume(finalSpoken)
         }
@@ -508,7 +537,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         isRunning = false
         instance = null
-        speechRecognizer?.destroy()
+        stopSpeechRecognizerCleanly()
         tts?.shutdown()
         scope.cancel()
         updateState("OFFLINE")
