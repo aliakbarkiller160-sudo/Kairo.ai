@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -37,6 +38,48 @@ class AgentAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    /**
+     * Extracts visible clickable/text UI elements with normalized (0-1000) coordinates
+     * so Gemini knows the exact position of buttons, search bars, and contacts.
+     */
+    fun getUiTreeSummary(): String {
+        val root = rootInActiveWindow ?: return ""
+        val dm = resources.displayMetrics
+        val width = dm.widthPixels.coerceAtLeast(1)
+        val height = dm.heightPixels.coerceAtLeast(1)
+        val lines = mutableListOf<String>()
+
+        fun traverse(node: AccessibilityNodeInfo?) {
+            if (node == null || lines.size >= 45) return
+            val rect = Rect()
+            node.getBoundsInScreen(rect)
+
+            val label = (node.text?.toString() ?: node.contentDescription?.toString() ?: "").trim()
+            val isImportant = node.isClickable || node.isEditable || label.isNotEmpty()
+
+            if (isImportant && rect.width() > 0 && rect.height() > 0) {
+                val cx = ((rect.centerX().toFloat() / width) * 1000).toInt().coerceIn(0, 1000)
+                val cy = ((rect.centerY().toFloat() / height) * 1000).toInt().coerceIn(0, 1000)
+                val tag = when {
+                    node.isEditable -> "INPUT"
+                    node.isClickable -> "BTN"
+                    else -> "TXT"
+                }
+                val cleanLabel = label.replace("\n", " ").take(35)
+                if (cleanLabel.isNotEmpty() || node.isEditable) {
+                    lines.add("[$tag] \"$cleanLabel\" @ ($cx,$cy)")
+                }
+            }
+
+            for (i in 0 until node.childCount) {
+                traverse(node.getChild(i))
+            }
+        }
+
+        traverse(root)
+        return lines.joinToString("\n")
+    }
+
     fun performTap(normX: Float, normY: Float) {
         val dm = resources.displayMetrics
         val x = (normX.coerceIn(0f, 1000f) / 1000f) * dm.widthPixels
@@ -60,6 +103,15 @@ class AgentAccessibilityService : AccessibilityService() {
         dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
 
+    fun performKey(key: String): Boolean {
+        return when (key.lowercase().trim()) {
+            "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
+            "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
+            "recents" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
+            else -> false
+        }
+    }
+
     fun performType(text: String) {
         val root = rootInActiveWindow ?: return
         var target = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
@@ -67,6 +119,7 @@ class AgentAccessibilityService : AccessibilityService() {
             target = findFirstEditableNode(root)
         }
         if (target != null) {
+            target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             val args = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
             }
@@ -87,7 +140,6 @@ class AgentAccessibilityService : AccessibilityService() {
     fun openAppByName(name: String): Boolean {
         val query = name.lowercase().trim()
 
-        // 1. Common aliases & system intents
         val aliases = mapOf(
             "whatsapp" to "com.whatsapp",
             "whatsapp business" to "com.whatsapp.w4b",
@@ -119,7 +171,6 @@ class AgentAccessibilityService : AccessibilityService() {
             }
         }
 
-        // System shortcuts for camera, phone/dialer, messages, settings
         try {
             when {
                 query.contains("camera") -> {
@@ -145,7 +196,6 @@ class AgentAccessibilityService : AccessibilityService() {
             }
         } catch (_: Exception) {}
 
-        // 2. Dynamic search across ALL installed launchable apps on the phone
         val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
         }
@@ -156,7 +206,6 @@ class AgentAccessibilityService : AccessibilityService() {
             packageManager.queryIntentActivities(mainIntent, 0)
         }
 
-        // Exact label match first, then partial match
         val exactMatch = apps.firstOrNull {
             it.loadLabel(packageManager).toString().lowercase().trim() == query
         }
