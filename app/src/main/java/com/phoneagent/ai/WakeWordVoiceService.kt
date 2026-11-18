@@ -82,7 +82,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             val prefs = getSharedPreferences("agent_prefs", MODE_PRIVATE)
             val allVoices = try { tts?.voices?.toList() ?: emptyList() } catch (_: Exception) { emptyList() }
 
-            // Natural, clear voices (Hindi/Urdu/Indian-English handle Roman Urdu pronunciation best)
             val preferredVoiceOrder = listOf(
                 "hi-in-x-hia-local",
                 "hi-in-x-hie-local",
@@ -119,7 +118,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // Natural human pitch & speed (no robotic squeak)
             tts?.setPitch(1.02f)
             tts?.setSpeechRate(0.96f)
 
@@ -130,7 +128,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
                 override fun onDone(utteranceId: String?) {
                     isSpeaking = false
                     isExecutingTask = false
-                    conversationActiveUntil = System.currentTimeMillis() + 20_000L
+                    conversationActiveUntil = System.currentTimeMillis() + 25_000L
                     updateState("LISTENING (FOLLOW-UP)")
                     mainHandler.postDelayed({ startListeningCycle() }, 250)
                 }
@@ -252,7 +250,6 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                // Primary Urdu-Pakistan + English-India so both Urdu & English words are captured clearly
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK")
                 putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("en-IN", "en-US", "hi-IN"))
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
@@ -270,19 +267,18 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
                 override fun onPartialResults(partialResults: Bundle?) {
                     val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.lowercase() ?: return
-                    if (partial == "stop" || partial == "kairo stop" || partial == "ruk jao") {
+                    if (partial == "stop" || partial == "kairo stop" || partial == "ruk jao" || partial.contains("رک جاؤ")) {
                         cancelCurrentTask = true
                     }
                 }
 
                 override fun onResults(results: Bundle?) {
-                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    // Prefer English/Roman script candidate if available, otherwise first result
-                    val bestMatch = matches?.firstOrNull { it.any { ch -> ch in 'a'..'z' || ch in 'A'..'Z' } }
-                        ?: matches?.firstOrNull()?.trim()
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: emptyList()
+                    val bestMatch = matches.firstOrNull { it.any { ch -> ch in 'a'..'z' || ch in 'A'..'Z' } }
+                        ?: matches.firstOrNull()?.trim()
                         ?: ""
                     if (bestMatch.isNotEmpty()) {
-                        handleSpokenText(bestMatch, matches ?: emptyList())
+                        handleSpokenText(bestMatch, matches)
                     } else {
                         restartListenerDelayed(200)
                     }
@@ -313,9 +309,10 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
     private fun isWakeWordDetected(allCandidates: List<String>, wakeNameLower: String): Boolean {
         val variants = if (wakeNameLower == "kairo") {
             listOf(
-                "kairo", "cairo", "kyro", "kero", "kiro", "qairo",
-                "caro", "kairon", "kairow", "kairoh", "karo", "hero",
-                "کائرو", "کیرو", "کairo", "کیرو"
+                "kairo", "cairo", "kyro", "kero", "kiro", "qairo", "kando",
+                "caro", "kairon", "kairow", "kairoh", "karo", "hero", "kylo",
+                "کائرو", "کیرو", "کارو", "کانڈو", "کایرو", "کائرہ", "کیلو",
+                "قائرہ", "قارو", "قایرو", "کائیرو", "خیر", "کیروں"
             )
         } else {
             listOf(wakeNameLower)
@@ -326,13 +323,32 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun normalizeUrduCommand(raw: String): String {
+        return raw
+            .replace("واٹس ایپ", "WhatsApp")
+            .replace("وٹساپ", "WhatsApp")
+            .replace("یوٹیوب", "YouTube")
+            .replace("یو ٹیوب", "YouTube")
+            .replace("کروم", "Chrome")
+            .replace("سیٹنگز", "Settings")
+            .replace("سیٹنگ", "Settings")
+            .replace("کیمرہ", "Camera")
+            .replace("انسٹاگرام", "Instagram")
+            .replace("فیس بک", "Facebook")
+            .replace("ٹک ٹاک", "TikTok")
+            .replace("کھولو", "kholo")
+            .replace("چلاؤ", "chalao")
+            .replace("بھیج دو", "bhej do")
+            .replace("لکھو", "likho")
+    }
+
     private fun handleSpokenText(spoken: String, allCandidates: List<String>) {
         val prefs = getSharedPreferences("agent_prefs", MODE_PRIVATE)
         val wakeName = (prefs.getString("wake_name", "Kairo") ?: "Kairo").trim()
         val apiKey = (prefs.getString("api_key", "") ?: "").trim()
         val lower = spoken.lowercase()
 
-        if (lower == "stop" || lower == "ruk jao" || lower == "bas karo" || lower == "kairo stop") {
+        if (lower == "stop" || lower == "ruk jao" || lower == "bas karo" || lower == "kairo stop" || spoken.contains("رک جاؤ") || spoken.contains("بس کرو")) {
             cancelCurrentTask = true
             isExecutingTask = false
             conversationActiveUntil = 0L
@@ -370,9 +386,9 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
 
         var cleaned = spoken
         listOf(
-            wakeName, "cairo", "kyro", "kero", "kiro", "qairo",
-            "caro", "kairon", "kairow", "kairoh", "کائرو", "کیرو",
-            "hey", "hi", "hello", "suno", "ji"
+            wakeName, "cairo", "kyro", "kero", "kiro", "qairo", "kando",
+            "caro", "kairon", "kairow", "kairoh", "کارو", "کائرو", "کیرو", "کانڈو",
+            "hey", "hi", "hello", "suno", "ji", "یار"
         ).forEach {
             cleaned = cleaned.replace(it, "", ignoreCase = true)
         }
@@ -381,7 +397,8 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             return
         }
 
-        executeAgentCommand(apiKey, wakeName, spoken)
+        val normalizedGoal = normalizeUrduCommand(spoken)
+        executeAgentCommand(apiKey, wakeName, normalizedGoal)
     }
 
     fun triggerDirectCommand(command: String) {
@@ -396,7 +413,7 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
         cancelCurrentTask = false
         stopSpeechRecognizerCleanly()
         log("⌨️ Command: $command")
-        executeAgentCommand(apiKey, wakeName, command)
+        executeAgentCommand(apiKey, wakeName, normalizeUrduCommand(command))
     }
 
     private fun deductCredit(amount: Int = 1) {
@@ -415,7 +432,8 @@ class WakeWordVoiceService : Service(), TextToSpeech.OnInitListener {
             "whatsapp", "youtube", "insta", "instagram", "facebook", "tiktok",
             "chrome", "settings", "camera", "maps", "message", "msg", "call", "phone",
             "scroll", "swipe", "tap", "click", "type", "likho", "send", "bhejo", "bhej",
-            "back", "home", "volume", "wifi", "bluetooth", "screen", "app"
+            "back", "home", "volume", "wifi", "bluetooth", "screen", "app",
+            "کھولو", "چلاؤ", "واٹس", "یوٹیوب", "بھیج", "لکھو"
         )
         return deviceKeywords.any { g.contains(it) }
     }
