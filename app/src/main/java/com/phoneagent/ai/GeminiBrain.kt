@@ -15,11 +15,14 @@ class GeminiBrain(private val apiKey: String, private val agentName: String = "K
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // Real, ultra-fast official Google Gemini models
-    private val modelQueue = listOf(
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash"
+    // Groq ultra-fast free models (Vision + Text)
+    private val groqVisionModels = listOf(
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "llama-3.2-90b-vision-preview"
+    )
+    private val groqTextModels = listOf(
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant"
     )
 
     private val systemPrompt = """
@@ -31,10 +34,10 @@ STRICT EXECUTION & ANTI-LOOP RULES:
 2. NEVER take autonomous or unrequested actions. Only execute the exact command the user gave.
 3. If the user is just chatting, greeting, or asking a general question (no phone action needed), reply smartly like JARVIS in "speak" and "summary" with action "done".
 4. If the user's command is missing details (e.g. "message bhej do" without recipient or text), DO NOT tap anything—use action "done" and politely ask in "speak".
-5. Before final irreversible actions (sending a WhatsApp/SMS message, making a call, deleting data, or payment), stop on the final screen with the text typed and ask confirmation in "speak" with action "done" UNLESS the user already said "bhej do", "send", or "confirm".
+5. Before final irreversible actions (sending a WhatsApp/SMS message, making a call, deleting data, or payment), stop on the final screen with the text typed and ask confirmation in "speak" with action "done" UNLESS the user already said "bhej do", "send", "bhej", or "confirm".
 
-You can control ANY Android app using the live screenshot and UI elements.
-Reply with ONE valid JSON object ONLY (no markdown). Coordinates are NORMALIZED 0-1000 (x=0 left, x=1000 right, y=0 top, y=1000 bottom).
+You can control ANY Android app using the live screenshot and VISIBLE SCREEN ELEMENTS coordinates.
+Reply with ONE valid JSON object ONLY (no markdown, no extra text). Coordinates are NORMALIZED 0-1000 (x=0 left, x=1000 right, y=0 top, y=1000 bottom).
 
 Allowed actions:
 {"action":"open_app","app":"exact app name e.g. whatsapp, youtube, chrome, settings, instagram, facebook, tiktok, camera, maps, messages, phone, calculator, spotify, gmail"}
@@ -51,11 +54,11 @@ Every JSON MUST include:
 
 Behavior Rules:
 - If the user just called your name (e.g. "Hey $agentName", "Hello $agentName", "$agentName suno") with no command yet, reply with action "done" and speak: "Ji boss, Kairo hazir hai. Hukam karein."
-- For WhatsApp tasks (e.g. "WhatsApp par Ali ko salam bhej do"):
+- For WhatsApp tasks (e.g. "WhatsApp par Behna ko AOA likh kar send kar do"):
   Step 1: open_app "whatsapp"
-  Step 2: tap the Search icon (top right) or the contact directly if visible on screen
-  Step 3: type the contact name, then tap the contact in results
-  Step 4: tap the message input box ("Message"), type the message, and tap the Send icon if user asked to send ("bhej do").
+  Step 2: tap the Search icon or Search bar using its exact coordinates from VISIBLE SCREEN ELEMENTS
+  Step 3: type the contact name ("Behna"), then tap the contact in results
+  Step 4: tap the message input box ("Message"), type the message ("AOA"), and tap the Send icon if user asked to send.
 """.trimIndent()
 
     fun askNextAction(
@@ -66,7 +69,7 @@ Behavior Rules:
     ): JSONObject {
         val cleanKey = apiKey.trim()
         val histText = if (history.isEmpty()) "(none)" else history.takeLast(8).joinToString("\n")
-        
+
         val promptBuilder = StringBuilder()
         promptBuilder.append("USER COMMAND: $goal\n\n")
         promptBuilder.append("ACTIONS SO FAR:\n$histText\n")
@@ -74,39 +77,37 @@ Behavior Rules:
             promptBuilder.append("\nVISIBLE SCREEN ELEMENTS:\n$uiTreeSummary\n")
         }
 
-        val parts = JSONArray()
-        parts.put(JSONObject().put("text", promptBuilder.toString()))
+        val modelsToTry = if (screenshotBase64 != null) groqVisionModels else groqTextModels
+        var lastError = "Unknown Groq API error"
 
-        if (screenshotBase64 != null) {
-            parts.put(
-                JSONObject().put(
-                    "inline_data",
+        for (model in modelsToTry) {
+            val messages = JSONArray()
+            messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+
+            if (screenshotBase64 != null) {
+                val userContent = JSONArray()
+                userContent.put(JSONObject().put("type", "text").put("text", promptBuilder.toString()))
+                userContent.put(
                     JSONObject()
-                        .put("mime_type", "image/jpeg")
-                        .put("data", screenshotBase64)
+                        .put("type", "image_url")
+                        .put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$screenshotBase64"))
                 )
-            )
-        }
+                messages.put(JSONObject().put("role", "user").put("content", userContent))
+            } else {
+                messages.put(JSONObject().put("role", "user").put("content", promptBuilder.toString()))
+            }
 
-        val bodyJson = JSONObject()
-            .put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
-            .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
-            .put(
-                "generationConfig",
-                JSONObject()
-                    .put("response_mime_type", "application/json")
-                    .put("temperature", 0.15)
-                    .put("maxOutputTokens", 300)
-            )
+            val bodyJson = JSONObject()
+                .put("model", model)
+                .put("messages", messages)
+                .put("response_format", JSONObject().put("type", "json_object"))
+                .put("temperature", 0.15)
+                .put("max_tokens", 300)
 
-        var lastError = "Unknown API error"
-
-        for (model in modelQueue) {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
             val req = Request.Builder()
-                .url(url)
+                .url("https://api.groq.com/openai/v1/chat/completions")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("x-goog-api-key", cleanKey)
+                .addHeader("Authorization", "Bearer $cleanKey")
                 .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
@@ -115,23 +116,26 @@ Behavior Rules:
                     val raw = resp.body?.string() ?: "Empty response"
                     if (resp.isSuccessful) {
                         val json = JSONObject(raw)
-                        var text = json.getJSONArray("candidates")
+                        var text = json.getJSONArray("choices")
                             .getJSONObject(0)
-                            .getJSONObject("content")
-                            .getJSONArray("parts")
-                            .getJSONObject(0)
-                            .getString("text")
+                            .getJSONObject("message")
+                            .getString("content")
                             .trim()
 
                         text = text.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
                         return JSONObject(text)
                     } else {
-                        lastError = "Gemini Error ${resp.code} ($model): $raw"
+                        lastError = "Groq Error ${resp.code} ($model): $raw"
                     }
                 }
             } catch (e: Exception) {
                 lastError = "Network/Parse Error ($model): ${e.message}"
             }
+        }
+
+        // If vision models fail for any reason, fallback automatically to text-only with UI Tree coordinates
+        if (screenshotBase64 != null) {
+            return askNextAction(goal, history, null, uiTreeSummary)
         }
 
         throw Exception(lastError)
